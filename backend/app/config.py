@@ -19,6 +19,7 @@ class Config:
     # --- Autentikasi ---
     # Tidak ada kredensial tersimpan — semua platform login MANUAL via browser
     # Cookies disimpan otomatis setelah login berhasil
+    API_KEY: str = os.getenv("API_KEY", "crawler_secret_key_2026")
 
 
     # --- Browser ---

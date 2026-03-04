@@ -15,6 +15,7 @@ from ..auth.tiktok import TikTokAuth
 from ..crawlers.facebook import FacebookCrawler
 from ..crawlers.instagram import InstagramCrawler
 from ..crawlers.tiktok import TikTokCrawler
+from ..utils import save_crawl_result
 
 
 # ============================================================
@@ -32,6 +33,7 @@ def crawl_facebook_profile(target: str, max_posts: int) -> CrawlResult:
             page = auth.login(browser)
             crawler = FacebookCrawler(page)
             result = crawler.crawl_profile(target, max_posts)
+            save_crawl_result("facebook", "username", result)
             logger.success(f"[Service:FB] Selesai — {result.total_comments} komentar")
             return result
         except Exception as e:
@@ -57,6 +59,7 @@ def crawl_instagram_profile(target: str, max_posts: int) -> CrawlResult:
             page = auth.login(browser)
             crawler = InstagramCrawler(page)
             result = crawler.crawl_profile(target, max_posts)
+            save_crawl_result("instagram", "username", result)
             logger.success(f"[Service:IG] Selesai — {result.total_comments} komentar")
             return result
         except Exception as e:
@@ -78,6 +81,7 @@ def crawl_instagram_hashtag(hashtag: str, max_posts: int) -> CrawlResult:
             page = auth.login(browser)
             crawler = InstagramCrawler(page)
             result = crawler.crawl_hashtag(hashtag, max_posts)
+            save_crawl_result("instagram", "hashtag", result)
             logger.success(f"[Service:IG] Selesai — {result.total_comments} komentar")
             return result
         except Exception as e:
@@ -115,6 +119,7 @@ def crawl_tiktok_profile(target: str, max_posts: int) -> CrawlResult:
             ).new_page())
             
             result = crawler.crawl_profile(target, max_posts)
+            save_crawl_result("tiktok", "username", result)
             logger.success(f"[Service:TT] Selesai — {result.total_comments} komentar")
             return result
         except Exception as e:
@@ -146,6 +151,7 @@ def crawl_tiktok_hashtag(hashtag: str, max_posts: int) -> CrawlResult:
             ).new_page())
             
             result = crawler.crawl_hashtag(hashtag, max_posts)
+            save_crawl_result("tiktok", "hashtag", result)
             logger.success(f"[Service:TT] Selesai — {result.total_comments} komentar")
             return result
         except Exception as e:

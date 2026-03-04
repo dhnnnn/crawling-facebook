@@ -369,6 +369,7 @@ class TikTokCrawler(BaseCrawler):
         comments = []
         logger.info("[TikTok] Mengekstrak komentar...")
 
+        # Coba cari elemen komentar dari container spesifik dulu
         selectors = [
             '[data-e2e="comment-item"]',
             'div[class*="CommentItemContainer"]',
@@ -378,23 +379,33 @@ class TikTokCrawler(BaseCrawler):
             'div[class*="DivCommentItem"]',
             'div[class*="CommentItemV2"]',
         ]
-        
+
         comment_items = []
         for s in selectors:
             try:
-                comment_items = self.page.query_selector_all(s)
-                if len(comment_items) > 0:
-                    logger.debug(f"[TikTok] Ditemukan {len(comment_items)} item via {s}")
+                items = self.page.query_selector_all(s)
+                if len(items) > 0:
+                    logger.debug(f"[TikTok] Ditemukan {len(items)} item via {s}")
+                    comment_items = items
                     break
-            except Exception: continue
+            except Exception:
+                continue
 
-        # Jika masih nol, cari div yang punya struktur mirip komentar (profile img + name + text)
+        # Fallback: cari di dalam comment-list container saja (bukan seluruh page)
         if not comment_items:
             try:
-                # Cari div yang punya link ke profil (@username) di dalam area komentar
-                comment_items = self.page.query_selector_all('div:has(a[href*="/@"])')
-                logger.debug(f"[TikTok] Fallback link profil: ditemukan {len(comment_items)} item")
-            except Exception: pass
+                container = None
+                for csel in ('[data-e2e="comment-list-container"]', '[data-e2e="comment-list"]',
+                             'div[class*="DivCommentListContainer"]'):
+                    container = self.page.query_selector(csel)
+                    if container:
+                        break
+                if container:
+                    # Ambil hanya div langsung yang punya link @username di dalamnya
+                    comment_items = container.query_selector_all('div:has(a[href*="/@"])')
+                    logger.debug(f"[TikTok] Fallback container: {len(comment_items)} item")
+            except Exception:
+                pass
 
         for idx, item in enumerate(comment_items):
             try:
@@ -404,20 +415,32 @@ class TikTokCrawler(BaseCrawler):
             except Exception as e:
                 logger.debug(f"[TikTok] Error parse komentar {idx}: {e}")
 
-        if not comments:
-            logger.warning("[TikTok] Tidak ada komentar yang berhasil di-parse dari elemen.")
-            # Coba fallback yang sangat agresif: ambil semua yang kayak komentar
-            comments = self._fallback_extract_comments(video_url)
-
-        logger.info(f"[TikTok] Berhasil ekstrak {len(comments)} komentar")
+        logger.info(f"[TikTok] Berhasil ekstrak {len(comments)} komentar valid")
         return comments
 
+    # Daftar nama yang bukan komentar asli (navigasi, UI element, dll.)
+    _AUTHOR_BLACKLIST = {
+        "profil", "unknown", "tiktok", "lainnya", "saran", "jelajahi",
+        "mengikuti", "live", "pesan", "aktivitas", "unggah", "teman",
+        "follow", "following", "profile", "explore", "home", "inbox",
+        "notification", "more", "creator", "business", "legal",
+    }
+    # Kata-kata penanda teks navigasi / caption — bukan komentar
+    _NAV_PATTERNS = [
+        "ketentuan dan kebijakan", "kebijakan privasi", "program kreator",
+        "tentang tiktok", "perusahaan", "𝗙𝗼𝗹𝗹𝗼𝘄", "supported by",
+        "follow us", "beli sekarang", "shop now",
+    ]
+
     def _parse_comment_element(self, element, video_url: str) -> Optional[CommentData]:
-        """Parse elemen komentar TikTok menjadi CommentData"""
+        """Parse elemen komentar TikTok menjadi CommentData.
+        Hanya dikembalikan jika: author punya URL /@username valid,
+        teks bukan navigasi/caption, dan panjang teks wajar.
+        """
         try:
-            # Nama author
+            # ── Author ──────────────────────────────────────────────
             author_name = ""
-            author_url = ""
+            author_url  = ""
 
             author_selectors = [
                 '[data-e2e="comment-username-1"]',
@@ -427,19 +450,33 @@ class TikTokCrawler(BaseCrawler):
                 'span[class*="SpanUserName"]',
                 'p[class*="PUserName"]',
             ]
-
             for s in author_selectors:
-                author_el = element.query_selector(s)
-                if author_el:
-                    author_name = author_el.text_content().strip()
-                    href = author_el.get_attribute("href") or ""
-                    if href.startswith("/"):
-                        author_url = f"https://www.tiktok.com{href}"
-                    elif href.startswith("http"):
-                        author_url = href
-                    if author_name: break
+                try:
+                    author_el = element.query_selector(s)
+                    if not author_el:
+                        continue
+                    name  = author_el.text_content().strip()
+                    href  = author_el.get_attribute("href") or ""
+                    url   = (
+                        f"https://www.tiktok.com{href}" if href.startswith("/")
+                        else href if href.startswith("http") else ""
+                    )
+                    # Wajib: URL mengandung /@  → bukan elemen UI biasa
+                    if "/@" in url and name:
+                        author_name = name
+                        author_url  = url
+                        break
+                except Exception:
+                    continue
 
-            # Teks komentar
+            # Validasi author: harus punya URL /@username yang valid
+            if not author_name or not author_url or "/@" not in author_url:
+                return None
+            # Tolak jika nama ada di blacklist (navigasi / UI)
+            if author_name.lower() in self._AUTHOR_BLACKLIST:
+                return None
+
+            # ── Teks Komentar ────────────────────────────────────────
             comment_text = ""
             text_selectors = [
                 '[data-e2e="comment-level-1"]',
@@ -450,39 +487,54 @@ class TikTokCrawler(BaseCrawler):
                 'span[class*="SpanCommentText"]',
                 'p[class*="PCommentText"]',
             ]
-            
             for s in text_selectors:
                 try:
                     text_el = element.query_selector(s)
                     if text_el:
-                        comment_text = text_el.inner_text().strip()
-                        if comment_text: break
-                except Exception: continue
+                        t = text_el.inner_text().strip()
+                        if t:
+                            comment_text = t
+                            break
+                except Exception:
+                    continue
 
-            if not comment_text and author_name:
-                # Fallback: ambil semua p atau span di dalam item yang isinya panjang
+            # Fallback teks: cari p/span yang bukan nama author dan bukan angka
+            if not comment_text:
                 try:
-                    all_texts = element.query_selector_all("p, span, div")
-                    # Shortlist: ambil yang bukan author_name dan bukan angka like
-                    for s in all_texts:
-                        t = s.inner_text().strip()
+                    for el in element.query_selector_all("p, span"):
+                        t = el.inner_text().strip()
                         if t and t != author_name and len(t) > 3 and not t.isdigit():
-                            # Pastikan bukan icon atau timestamp singkat
-                            if len(t) > len(comment_text):
-                                comment_text = t
-                except Exception: pass
+                            comment_text = t
+                            break
+                except Exception:
+                    pass
 
-            if not comment_text or not author_name or author_name == "Unknown":
+            if not comment_text:
                 return None
 
-            # Likes
+            # ── Validasi teks komentar ───────────────────────────────
+            # 1. Terlalu panjang → kemungkinan caption video (bukan komentar)
+            if len(comment_text) > 500:
+                logger.debug(f"[TikTok] Skip: teks terlalu panjang ({len(comment_text)} char) → bukan komentar")
+                return None
+            # 2. Banyak baris → kemungkinan menu navigasi atau caption multi-baris
+            newline_count = comment_text.count("\n")
+            if newline_count > 5:
+                logger.debug(f"[TikTok] Skip: terlalu banyak newline ({newline_count}) → bukan komentar")
+                return None
+            # 3. Mengandung pola teks navigasi / caption
+            lower_text = comment_text.lower()
+            for pattern in self._NAV_PATTERNS:
+                if pattern.lower() in lower_text:
+                    logger.debug(f"[TikTok] Skip: teks mengandung pola nav/caption '{pattern}'")
+                    return None
+
+            # ── Likes ────────────────────────────────────────────────
             likes = 0
             try:
                 like_el = element.query_selector('[data-e2e="comment-like-count"]')
                 if like_el:
-                    like_text = like_el.text_content().strip()
-                    # Handle "1.2K", "5", dll.
-                    likes = self._parse_count(like_text)
+                    likes = self._parse_count(like_el.text_content().strip())
             except Exception:
                 pass
 
@@ -502,31 +554,6 @@ class TikTokCrawler(BaseCrawler):
             logger.debug(f"[TikTok] Error parse elemen komentar: {e}")
             return None
 
-    def _fallback_extract_comments(self, video_url: str) -> List[CommentData]:
-        """Fallback: coba ambil komentar dari struktur umum halaman"""
-        comments = []
-        try:
-            # Cari semua div yang mengandung teks di seksi komentar
-            comment_section = self.page.query_selector('[data-e2e="comment-list"]')
-            if comment_section:
-                items = comment_section.query_selector_all("div")
-                for div in items:
-                    text = div.text_content().strip()
-                    if text and 5 < len(text) < 500:
-                        comments.append(CommentData(
-                            post_url=video_url,
-                            post_author="",
-                            comment_author="Unknown",
-                            comment_author_url="",
-                            comment_text=text,
-                            comment_timestamp="",
-                            likes_count=0,
-                            replies_count=0,
-                            crawled_at=datetime.now().isoformat(),
-                        ))
-        except Exception as e:
-            logger.debug(f"[TikTok] Fallback extract gagal: {e}")
-        return comments
 
     @staticmethod
     def _parse_count(text: str) -> int:

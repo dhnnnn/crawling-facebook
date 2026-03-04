@@ -158,3 +158,55 @@ def extract_username_from_url(url: str) -> str:
     except Exception as e:
         logger.error(f"Error ekstrak username dari URL: {e}")
         return ""
+def save_crawl_result(platform: str, crawl_type: str, result) -> None:
+    """Save CrawlResult to a JSON file under data/crawling/<platform>/<crawl_type>/ with timestamp.
+    crawl_type should be 'comment' or 'hashtag'."""
+    try:
+        from datetime import datetime
+        import json
+        from pathlib import Path
+        
+        # Validasi crawl_type agar folder tertata ('comment' atau 'hashtag')
+        c_type = "comment" if crawl_type == "username" else "hashtag"
+        
+        base_dir = Path(__file__).resolve().parents[2] / "data" / "crawling" / platform.lower() / c_type
+        base_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.utcnow().isoformat().replace(":", "-").replace(".", "-")
+        filename = f"{platform.lower()}_{timestamp}.json"
+        
+        file_path = base_dir / filename
+        data = result.dict() if hasattr(result, "dict") else result
+        
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+            
+        logger.info(f"[Utils] Crawl result saved: {file_path}")
+    except Exception as e:
+        logger.error(f"[Utils] Failed to save crawl result: {e}")
+
+
+def load_crawl_results(platform: str, crawl_type: str):
+    """Load all JSON crawl result files for a platform and crawl_type."""
+    try:
+        from pathlib import Path
+        import json
+        
+        base_dir = Path(__file__).resolve().parents[2] / "data" / "crawling" / platform.lower() / crawl_type
+        if not base_dir.exists():
+            return []
+            
+        results = []
+        # Sort by mtime descending (terbaru di atas)
+        files = sorted(base_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        for file in files:
+            try:
+                with open(file, "r", encoding="utf-8") as f:
+                    results.append(json.load(f))
+            except Exception:
+                continue
+        return results
+    except Exception as e:
+        logger.error(f"[Utils] Failed to load crawl results: {e}")
+        return []

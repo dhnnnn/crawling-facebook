@@ -1,52 +1,41 @@
 """
-Entry point FastAPI untuk backend Multi-Platform Social Media Crawler.
-
-Cara menjalankan:
-    cd d:\.dev\python\Facebook\backend
-    uvicorn app.main:app --reload --port 8000
-
-Swagger UI: http://localhost:8000/docs
+FastAPI Entry Point for Multi-Platform Social Media Crawler.
+Restructured with platform-based grouping and security.
 """
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from .api.routes.crawler import router as crawler_router
+from .api.routes.facebook import router as facebook_router
+from .api.routes.instagram import router as instagram_router
+from .api.routes.tiktok import router as tiktok_router
+from .api.routes.system import router as system_router
 
 # ============================================================
-# Inisialisasi Aplikasi FastAPI
+# FastAPI App Initialization
 # ============================================================
 
 app = FastAPI(
     title="Multi-Platform Social Media Crawler API",
     description="""
-    API backend untuk crawling komentar dari **Facebook**, **Instagram**, dan **TikTok**
-    menggunakan Playwright. Semua platform memerlukan autentikasi via cookies.
+    API backend for crawling comments from **Facebook**, **Instagram**, and **TikTok**.
+    Endpoints are organized by platform and secured via API Key.
     
-    ## Endpoints
-    
-    - **POST /api/crawl** — Crawl komentar dari profil pengguna (username/URL)
-    - **POST /api/crawl/hashtag** — Crawl komentar berdasarkan hashtag (IG & TikTok)
-    - **GET /api/health** — Cek status server dan ketersediaan cookies
-    
-    ## Cara pakai
-    
-    1. Salin `.env.example` ke `.env` dan isi kredensial
-    2. Jalankan server: `uvicorn app.main:app --reload --port 8000`
-    3. Buka `http://localhost:8000/docs` untuk Swagger UI
+    ## Security
+    Include the API Key in the `X-API-Key` header for all protected requests.
     """,
-    version="1.0.0",
+    version="1.1.0",
 )
 
 # ============================================================
-# CORS — izinkan frontend (Next.js) mengakses API ini
+# CORS
 # ============================================================
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",   # Next.js dev server
+        "http://localhost:3000",
         "http://127.0.0.1:3000",
     ],
     allow_credentials=True,
@@ -55,11 +44,14 @@ app.add_middleware(
 )
 
 # ============================================================
-# Register Routes
+# Router Registration
 # ============================================================
 
-app.include_router(crawler_router)
-
+# All platform routers are mounted under /api
+app.include_router(facebook_router, prefix="/api")
+app.include_router(instagram_router, prefix="/api")
+app.include_router(tiktok_router, prefix="/api")
+app.include_router(system_router, prefix="/api")
 
 # ============================================================
 # Root endpoint
@@ -70,15 +62,13 @@ async def root():
     return {
         "message": "Multi-Platform Social Media Crawler API 🚀",
         "docs": "http://localhost:8000/docs",
-        "health": "http://localhost:8000/api/health",
+        "status": "Ready",
     }
-
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("=" * 55)
-    logger.info("  Social Media Crawler Backend — FastAPI")
+    logger.info("  Crawler Backend Restructured — FastAPI")
     logger.info("=" * 55)
     logger.info("  Swagger UI  : http://localhost:8000/docs")
-    logger.info("  Health Check: http://localhost:8000/api/health")
     logger.info("=" * 55)
