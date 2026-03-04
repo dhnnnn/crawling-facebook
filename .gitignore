@@ -1,5 +1,7 @@
 # Environment variables
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -10,23 +12,40 @@ __pycache__/
 venv/
 env/
 ENV/
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+nosetests.xml
+*.lprof
 
-# Data directories
-data/cookies/*
-data/exports/*
-data/logs/*
+# Data directories (Sensitive)
+**/data/cookies/*
+**/data/exports/*
+**/data/logs/*
+**/*.log
 
-# Keep directory structure
-!data/cookies/.gitkeep
-!data/exports/.gitkeep
-!data/logs/.gitkeep
+# Files to keep in data directories
+!**/data/cookies/.gitkeep
+!**/data/exports/.gitkeep
+!**/data/logs/.gitkeep
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.local-browsers/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+.project
+.pydevproject
+.settings/
 
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
