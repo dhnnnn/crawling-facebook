@@ -66,15 +66,53 @@ def save_cookies(cookies: List[dict], filepath: Path) -> None:
 
 
 def load_cookies(filepath: Path) -> Optional[List[dict]]:
-    """Muat cookies dari file JSON. Return None jika tidak ada."""
+    """Muat cookies dari file JSON. Mendukung format standar & extension Chrome."""
     try:
         if not filepath.exists():
             logger.info(f"File cookies tidak ditemukan: {filepath}")
             return None
+            
         with open(filepath, "r", encoding="utf-8") as f:
-            cookies = json.load(f)
-        logger.info(f"Cookies dimuat dari: {filepath} ({len(cookies)} item)")
-        return cookies
+            data = json.load(f)
+        
+        # J2TEAM format terkadang membungkus cookies di dalam object {"url": "...", "cookies": [...]}
+        cookies = data.get("cookies", data) if isinstance(data, dict) else data
+        
+        if not isinstance(cookies, list):
+            logger.error(f"Format cookies tidak valid di {filepath}")
+            return None
+
+        # Transformasi format extension Chrome (J2TEAM, dsb) ke Playwright
+        cleaned_cookies = []
+        for c in cookies:
+            cookie = {
+                "name": c.get("name"),
+                "value": c.get("value"),
+                "domain": c.get("domain"),
+                "path": c.get("path", "/"),
+            }
+            
+            # Playwright butuh 'expires' (int), Chrome extension pakai 'expirationDate' (float)
+            if "expirationDate" in c:
+                cookie["expires"] = int(c["expirationDate"])
+            elif "expires" in c:
+                cookie["expires"] = int(c["expires"])
+            
+            if "httpOnly" in c: cookie["httpOnly"] = c["httpOnly"]
+            if "secure" in c: cookie["secure"] = c["secure"]
+            
+            # SameSite harus: 'Strict', 'Lax', atau 'None'
+            if "sameSite" in c:
+                val = str(c["sameSite"]).capitalize()
+                if val in ["Strict", "Lax", "None"]:
+                    cookie["sameSite"] = val
+                else:
+                    cookie["sameSite"] = "Lax" # Default aman
+            
+            cleaned_cookies.append(cookie)
+
+        logger.info(f"Cookies dimuat dari: {filepath} ({len(cleaned_cookies)} item)")
+        return cleaned_cookies
     except Exception as e:
         logger.error(f"Gagal memuat cookies: {e}")
         return None

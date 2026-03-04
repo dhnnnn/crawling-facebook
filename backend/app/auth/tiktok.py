@@ -13,8 +13,6 @@ class TikTokAuth:
     """Mengelola autentikasi ke TikTok menggunakan Playwright"""
 
     def __init__(self):
-        self.username = Config.TT_USERNAME
-        self.password = Config.TT_PASSWORD
         self.cookies_path = Config.get_cookies_path("tiktok")
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None

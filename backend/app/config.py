@@ -16,17 +16,10 @@ class Config:
     BASE_DIR = Path(__file__).parent.parent.parent
     COOKIES_DIR = Path(os.getenv("COOKIES_DIR", str(BASE_DIR / "data" / "cookies")))
 
-    # --- Facebook ---
-    FB_EMAIL: str = os.getenv("FB_EMAIL", "")
-    FB_PASSWORD: str = os.getenv("FB_PASSWORD", "")
+    # --- Autentikasi ---
+    # Tidak ada kredensial tersimpan — semua platform login MANUAL via browser
+    # Cookies disimpan otomatis setelah login berhasil
 
-    # --- Instagram ---
-    IG_USERNAME: str = os.getenv("IG_USERNAME", "")
-    IG_PASSWORD: str = os.getenv("IG_PASSWORD", "")
-
-    # --- TikTok ---
-    TT_USERNAME: str = os.getenv("TT_USERNAME", "")
-    TT_PASSWORD: str = os.getenv("TT_PASSWORD", "")
 
     # --- Browser ---
     HEADLESS: bool = os.getenv("HEADLESS", "false").lower() == "true"

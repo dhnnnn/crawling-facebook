@@ -478,7 +478,7 @@ class InstagramCrawler(BaseCrawler):
                     }
 
                     // Validasi format username Instagram: alphanum, underscore, titik
-                    // Contoh valid: rusdi_sutejo, user.name123, john_doe
+                    // Contoh valid: rusdi.sutejo, user.name123, john_doe
                     // Contoh invalid: "3 lainnya", "PostinganBaru", "# " 
                     function isValidUsername(name) {
                         if (!name || name.length < 1 || name.length > 60) return false;

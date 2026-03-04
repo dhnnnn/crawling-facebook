@@ -29,7 +29,7 @@ class InstagramAuth:
         """
         Login ke Instagram.
         1. Coba cookies tersimpan
-        2. Jika gagal → login manual via browser
+        2. Jika gagal / expired → login manual via browser
         """
         logger.info("=== Memulai autentikasi Instagram ===")
 
@@ -39,10 +39,126 @@ class InstagramAuth:
             page = self._login_with_cookies(browser, cookies)
             if page:
                 return page
-            logger.warning("Cookies Instagram expired, perlu login ulang...")
+
+            # Cookies expired — beri instruksi jelas ke user
+            logger.warning("=" * 60)
+            logger.warning("🔴 COOKIES INSTAGRAM SUDAH EXPIRED!")
+            logger.warning("=" * 60)
+            logger.warning("Cookies lama tidak valid, perlu login ulang.")
+            logger.warning("LANGKAH RE-LOGIN:")
+            logger.warning("  1. Tunggu browser terbuka")
+            logger.warning("  2. Login manual di browser tersebut")
+            logger.warning("  3. Setelah berhasil masuk beranda, tekan ENTER di terminal")
+            logger.warning("  ⚠️  Jika ada proses crawl lain yang sedang berjalan,")
+            logger.warning("     HENTIKAN SERVER dulu (Ctrl+C) lalu jalankan ulang.")
+            logger.warning("=" * 60)
 
         # Instagram blokir automated login, gunakan login manual
         return self._login_manual(browser)
+
+    def _login_with_cookies(self, browser: Browser, cookies: list) -> Optional[Page]:
+        """Coba login menggunakan cookies tersimpan"""
+        try:
+            self.context = browser.new_context(
+                viewport={"width": 1280, "height": 720},
+                user_agent=Config.USER_AGENT,
+            )
+            self.context.add_cookies(cookies)
+            self.page = self.context.new_page()
+
+            self.page.goto("https://www.instagram.com", timeout=Config.REQUEST_TIMEOUT)
+            random_delay(3, 5)
+
+            if self._is_logged_in():
+                logger.success("✓ Login Instagram berhasil via cookies tersimpan")
+                return self.page
+
+            logger.warning("Cookies Instagram tidak valid / expired")
+            self.context.close()
+            self.context = None
+            self.page = None
+            return None
+
+        except Exception as e:
+            logger.error(f"Error login Instagram dengan cookies: {e}")
+            if self.context:
+                self.context.close()
+                self.context = None
+            return None
+
+    def _login_manual(self, browser: Browser) -> Page:
+        """
+        Login Instagram secara manual.
+        Browser dibuka dalam mode VISIBLE (non-headless) agar user bisa login.
+        Cookies disimpan otomatis setelah login berhasil.
+        """
+        logger.info("Membuka browser untuk login Instagram secara manual...")
+        logger.warning("=" * 60)
+        logger.warning("⚠️  LOGIN INSTAGRAM MANUAL DIPERLUKAN")
+        logger.warning("=" * 60)
+        logger.warning("Silakan login manual di browser yang akan terbuka:")
+        logger.warning("  1. Browser terbuka di halaman login Instagram")
+        logger.warning("  2. Masukkan username/password atau Login dengan Facebook")
+        logger.warning("  3. Tunggu sampai masuk ke beranda Instagram")
+        logger.warning("  4. JANGAN tutup browser!")
+        logger.warning("=" * 60)
+
+        self.context = browser.new_context(
+            viewport={"width": 1280, "height": 720},
+            user_agent=Config.USER_AGENT,
+        )
+        self.page = self.context.new_page()
+
+        try:
+            self.page.goto(
+                "https://www.instagram.com/accounts/login/",
+                timeout=Config.REQUEST_TIMEOUT,
+            )
+
+            input("👉 Tekan ENTER setelah berhasil login ke beranda Instagram...")
+
+            # Auto-dismiss halaman /accounts/onetap/ (Simpan Info Login)
+            random_delay(2, 3)
+            self._dismiss_onetap()
+
+            # Tunggu URL menjadi instagram.com (beranda)
+            logger.info("Menunggu redirect ke beranda Instagram...")
+            try:
+                self.page.wait_for_url(
+                    lambda url: (
+                        "instagram.com" in url
+                        and "/accounts/" not in url
+                    ),
+                    timeout=15000,
+                )
+                logger.info(f"✓ URL sekarang: {self.page.url}")
+            except Exception:
+                logger.warning(f"Timeout redirect, URL saat ini: {self.page.url}")
+
+            random_delay(2, 3)
+
+            # Simpan cookies apapun kondisinya, selama URL bukan halaman login
+            current_url = self.page.url
+            is_on_login_page = "/accounts/" in current_url
+
+            if not is_on_login_page:
+                # Simpan cookies meski _is_logged_in() belum sempurna detect
+                cookies = self.context.cookies()
+                save_cookies(cookies, self.cookies_path)
+                logger.success("✓ Cookies Instagram tersimpan ke cookies_instagram.json")
+                logger.info(f"   Total cookies: {len(cookies)}")
+                logger.info("   Sesi berikutnya akan otomatis menggunakan cookies tersimpan.")
+                return self.page
+            else:
+                # Masih di halaman login — benar-benar gagal
+                raise Exception(
+                    f"Login Instagram gagal. URL saat ini: {current_url}. "
+                    "Pastikan Anda sudah benar-benar masuk ke beranda Instagram sebelum tekan Enter."
+                )
+
+        except Exception as e:
+            logger.error(f"Error login Instagram manual: {e}")
+            raise
 
     def _login_with_cookies(self, browser: Browser, cookies: list) -> Optional[Page]:
         """Coba login menggunakan cookies tersimpan"""

@@ -25,7 +25,8 @@ def crawl_facebook_profile(target: str, max_posts: int) -> CrawlResult:
     """Crawl Facebook profil (sync) — dipanggil via asyncio.to_thread()"""
     logger.info(f"[Service:FB] Crawl profil | target={target}, max_posts={max_posts}")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=Config.HEADLESS)
+        # Facebook: non-headless agar login manual bisa berjalan jika cookies expired
+        browser = p.chromium.launch(headless=False)
         try:
             auth = FacebookAuth()
             page = auth.login(browser)
@@ -38,6 +39,7 @@ def crawl_facebook_profile(target: str, max_posts: int) -> CrawlResult:
             return _error_result("facebook", target, "username", str(e))
         finally:
             browser.close()
+
 
 
 # ============================================================
@@ -94,11 +96,24 @@ def crawl_tiktok_profile(target: str, max_posts: int) -> CrawlResult:
     """Crawl TikTok profil (sync) — dipanggil via asyncio.to_thread()"""
     logger.info(f"[Service:TT] Crawl profil | target={target}, max_posts={max_posts}")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=Config.HEADLESS)
+        # Tambahkan stealth args untuk menghindari CAPTCHA/bot detection
+        browser = p.chromium.launch(
+            headless=Config.HEADLESS,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-web-security",
+            ]
+        )
         try:
-            auth = TikTokAuth()
-            page = auth.login(browser)
-            crawler = TikTokCrawler(page)
+            # Kita tidak lagi pakai TikTokAuth.login() yang interaktif
+            # TikTokCrawler akan menangani loading cookies secara internal
+            crawler = TikTokCrawler(browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                user_agent=Config.USER_AGENT
+            ).new_page())
+            
             result = crawler.crawl_profile(target, max_posts)
             logger.success(f"[Service:TT] Selesai — {result.total_comments} komentar")
             return result
@@ -114,11 +129,22 @@ def crawl_tiktok_hashtag(hashtag: str, max_posts: int) -> CrawlResult:
     hashtag = hashtag.lstrip("#")
     logger.info(f"[Service:TT] Crawl hashtag | #{hashtag}, max_posts={max_posts}")
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=Config.HEADLESS)
+        # Tambahkan stealth args
+        browser = p.chromium.launch(
+            headless=Config.HEADLESS,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-web-security",
+            ]
+        )
         try:
-            auth = TikTokAuth()
-            page = auth.login(browser)
-            crawler = TikTokCrawler(page)
+            crawler = TikTokCrawler(browser.new_context(
+                viewport={"width": 1280, "height": 800},
+                user_agent=Config.USER_AGENT
+            ).new_page())
+            
             result = crawler.crawl_hashtag(hashtag, max_posts)
             logger.success(f"[Service:TT] Selesai — {result.total_comments} komentar")
             return result

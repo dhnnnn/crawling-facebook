@@ -14,7 +14,7 @@ from loguru import logger
 from .base import BaseCrawler
 from ..config import Config
 from ..schemas.models import CommentData, CrawlResult
-from ..utils import random_delay, human_like_scroll
+from ..utils import random_delay, human_like_scroll, load_cookies
 
 
 class TikTokCrawler(BaseCrawler):
@@ -24,6 +24,18 @@ class TikTokCrawler(BaseCrawler):
 
     def __init__(self, page: Page):
         super().__init__(page)
+        self.cookies_path = Config.get_cookies_path("tiktok")
+        self._setup_cookies()
+
+    def _setup_cookies(self):
+        """Muat cookies jika tersedia"""
+        cookies = load_cookies(self.cookies_path)
+        if cookies:
+            try:
+                self.page.context.add_cookies(cookies)
+                logger.info("[TikTok] Cookies berhasil dipasang dari file")
+            except Exception as e:
+                logger.warning(f"[TikTok] Gagal memasang cookies: {e}")
 
     # ============================================================
     # PUBLIC API
@@ -172,18 +184,108 @@ class TikTokCrawler(BaseCrawler):
             # URL video TikTok: /video/XXXX
             elements = self.page.query_selector_all('a[href*="/video/"]')
             for el in elements:
-                href = el.get_attribute("href")
-                if href:
-                    if href.startswith("/"):
-                        href = f"https://www.tiktok.com{href}"
-                    # Hanya ambil URL yang berisi /video/
-                    if "/video/" in href:
-                        href = href.split("?")[0]
-                        video_urls.append(href)
+                try:
+                    href = el.get_attribute("href")
+                    if href:
+                        if href.startswith("/"):
+                            href = f"https://www.tiktok.com{href}"
+                        # Hanya ambil URL yang berisi /video/
+                        if "/video/" in href:
+                            href = href.split("?")[0]
+                            video_urls.append(href)
+                except Exception:
+                    continue
         except Exception as e:
             logger.debug(f"[TikTok] Error ekstrak URL video: {e}")
 
         return list(set(video_urls))
+
+    def _dismiss_popups(self) -> None:
+        """Tekan Escape sekali untuk menutup popup apapun secara pasif.
+        Tidak mencari / mengklik tombol X — langsung lanjut ke panel komentar.
+        """
+        try:
+            random_delay(0.5, 1.0)
+            self.page.keyboard.press("Escape")
+            random_delay(0.5, 1.0)
+            logger.debug("[TikTok] Escape ditekan untuk dismiss popup")
+        except Exception as e:
+            logger.debug(f"[TikTok] Gagal tekan Escape: {e}")
+
+    def _open_comments_panel(self) -> bool:
+        """Klik tab Komentar dan verifikasi panel komentar benar-benar terbuka sebelum lanjut."""
+        # Selector tab "Komentar" di panel kanan (urutan prioritas)
+        tab_selectors = [
+            'div[role="tab"]:has-text("Komentar")',
+            '#tabs-0-tab-0',
+            'p[data-e2e="browse-comment"]',
+            'div[data-e2e="browse-comment"]',
+            'button[data-e2e="browse-comment"]',
+            'span:has-text("Komentar")',
+            'p:has-text("Komentar")',
+        ]
+        # Selector untuk verifikasi: komentar sudah muncul di DOM
+        verify_selectors = [
+            '[data-e2e="comment-list-container"]',
+            '[data-e2e="comment-list"]',
+            'div[class*="DivCommentListContainer"]',
+            '[data-e2e="comment-item"]',
+        ]
+
+        MAX_ATTEMPTS = 3
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            logger.debug(f"[TikTok] Mencoba buka tab Komentar (percobaan {attempt}/{MAX_ATTEMPTS})...")
+            random_delay(1.0, 1.5)
+
+            try:
+                width = self.page.viewport_size['width']
+            except Exception:
+                width = 1280  # default fallback
+
+            clicked = False
+            for selector in tab_selectors:
+                try:
+                    elements = self.page.query_selector_all(selector)
+                    for btn in elements:
+                        if not btn.is_visible():
+                            continue
+                        box = btn.bounding_box()
+                        # Hanya klik jika elemen berada di panel kanan (> 55% lebar layar)
+                        if box and box['x'] > width * 0.55:
+                            logger.info(f"[TikTok] Klik tab Komentar via '{selector}' di x={box['x']:.0f}")
+                            btn.click(timeout=2000, force=True)
+                            random_delay(1.5, 2.5)
+                            clicked = True
+                            break
+                    if clicked:
+                        break
+                except Exception:
+                    continue
+
+            if not clicked:
+                logger.debug(f"[TikTok] Tab tidak ditemukan pada percobaan {attempt}, tunggu sebentar...")
+                random_delay(1.5, 2.0)
+                continue
+
+            # Verifikasi: pastikan area komentar sudah muncul di DOM
+            verified = False
+            for vsel in verify_selectors:
+                try:
+                    el = self.page.query_selector(vsel)
+                    if el and el.is_visible():
+                        logger.success(f"[TikTok] ✓ Panel komentar terbuka dan terverifikasi via '{vsel}'")
+                        verified = True
+                        break
+                except Exception:
+                    continue
+
+            if verified:
+                return True
+
+            logger.debug(f"[TikTok] Klik tab berhasil tapi panel belum terverifikasi, coba lagi...")
+
+        logger.warning("[TikTok] Panel komentar tidak berhasil dibuka setelah semua percobaan.")
+        return False
 
     # ============================================================
     # VIDEO: Crawl komentar dari satu video
@@ -192,25 +294,73 @@ class TikTokCrawler(BaseCrawler):
     def _crawl_video_comments(self, video_url: str) -> List[CommentData]:
         """Crawl komentar dari satu URL video TikTok"""
         self.page.goto(video_url, timeout=Config.REQUEST_TIMEOUT)
-        random_delay(4, 6)
+        random_delay(3, 5)
 
-        # Scroll untuk load komentar
+        # 1. Tekan Escape sekali (pasif) — tidak perlu klik tombol X
+        self._dismiss_popups()
+
+        # 2. Langsung klik tab Komentar & buka panel komentar
+        panel_opened = self._open_comments_panel()
+        if not panel_opened:
+            logger.warning(f"[TikTok] Panel komentar tidak terbuka untuk {video_url}, tetap lanjut ekstrak")
+
+        # 3. Scroll untuk load lebih banyak komentar
         self._load_comments()
 
         return self._extract_comments(video_url)
 
     def _load_comments(self) -> None:
-        """Scroll halaman video TikTok untuk load komentar"""
-        for _ in range(3):
-            human_like_scroll(self.page, scroll_amount=600)
-            random_delay(2, 3)
+        """Scroll di dalam panel komentar TikTok untuk load komentar"""
+        logger.info("[TikTok] Loading lebih banyak komentar...")
+        
+        # Cari container yang bisa di-scroll di panel kanan
+        container_selectors = [
+            '[data-e2e="comment-list-container"]',
+            'div[class*="DivCommentListContainer"]',
+            '[data-e2e="comment-list"]',
+            'div[class*="comment-list-container"]',
+        ]
+        
+        scrollable_sel = None
+        for sel in container_selectors:
+            try:
+                el = self.page.query_selector(sel)
+                if el and el.is_visible():
+                    scrollable_sel = sel
+                    break
+            except Exception: continue
+
+        for _ in range(12):
+            if scrollable_sel:
+                # Scroll di dalam container spesifik
+                self.page.evaluate(
+                    f'document.querySelector(`{scrollable_sel}`).scrollBy(0, 800)'
+                )
+            else:
+                # Fallback: Cari div di sisi kanan yang bisa di-scroll
+                self.page.evaluate('''() => {
+                    const elements = document.querySelectorAll('div');
+                    const width = window.innerWidth;
+                    for (const el of elements) {
+                        const rect = el.getBoundingClientRect();
+                        const style = getComputedStyle(el);
+                        // Cari element yang berada di 60% sisi kanan layar (panel komentar)
+                        if (rect.left > width * 0.4 && 
+                            el.scrollHeight > el.clientHeight && 
+                            (style.overflowY === 'auto' || style.overflowY === 'scroll' || style.position === 'absolute' || style.position === 'fixed')) {
+                            el.scrollBy(0, 800);
+                        }
+                    }
+                }''')
+                
+            random_delay(1.5, 3.0)
 
             # Klik "Load more" jika ada
             try:
                 load_more = self.page.query_selector('[data-e2e="comment-more-btn"]')
                 if load_more and load_more.is_visible():
-                    load_more.click()
-                    random_delay(2, 3)
+                    load_more.click(force=True)
+                    random_delay(1.0, 2.0)
             except Exception:
                 pass
 
@@ -219,14 +369,32 @@ class TikTokCrawler(BaseCrawler):
         comments = []
         logger.info("[TikTok] Mengekstrak komentar...")
 
-        # TikTok menggunakan data-e2e attributes yang lebih stabil
-        comment_items = self.page.query_selector_all('[data-e2e="comment-item"]')
+        selectors = [
+            '[data-e2e="comment-item"]',
+            'div[class*="CommentItemContainer"]',
+            'div[class*="CommentListItem"]',
+            'div[class*="comment-item"]',
+            'div[data-e2e="comment-level-1"]',
+            'div[class*="DivCommentItem"]',
+            'div[class*="CommentItemV2"]',
+        ]
+        
+        comment_items = []
+        for s in selectors:
+            try:
+                comment_items = self.page.query_selector_all(s)
+                if len(comment_items) > 0:
+                    logger.debug(f"[TikTok] Ditemukan {len(comment_items)} item via {s}")
+                    break
+            except Exception: continue
 
+        # Jika masih nol, cari div yang punya struktur mirip komentar (profile img + name + text)
         if not comment_items:
-            # Fallback selector
-            comment_items = self.page.query_selector_all(
-                'div[class*="CommentListItem"], div[class*="comment-item"]'
-            )
+            try:
+                # Cari div yang punya link ke profil (@username) di dalam area komentar
+                comment_items = self.page.query_selector_all('div:has(a[href*="/@"])')
+                logger.debug(f"[TikTok] Fallback link profil: ditemukan {len(comment_items)} item")
+            except Exception: pass
 
         for idx, item in enumerate(comment_items):
             try:
@@ -237,6 +405,8 @@ class TikTokCrawler(BaseCrawler):
                 logger.debug(f"[TikTok] Error parse komentar {idx}: {e}")
 
         if not comments:
+            logger.warning("[TikTok] Tidak ada komentar yang berhasil di-parse dari elemen.")
+            # Coba fallback yang sangat agresif: ambil semua yang kayak komentar
             comments = self._fallback_extract_comments(video_url)
 
         logger.info(f"[TikTok] Berhasil ekstrak {len(comments)} komentar")
@@ -249,36 +419,60 @@ class TikTokCrawler(BaseCrawler):
             author_name = ""
             author_url = ""
 
-            # TikTok: data-e2e="comment-username"
-            author_el = element.query_selector('[data-e2e="comment-username-1"]') or \
-                        element.query_selector('[data-e2e="comment-username"]') or \
-                        element.query_selector('a[href*="/@"]')
+            author_selectors = [
+                '[data-e2e="comment-username-1"]',
+                '[data-e2e="comment-username"]',
+                '[data-e2e="comment-user-name"]',
+                'a[href*="/@"]',
+                'span[class*="SpanUserName"]',
+                'p[class*="PUserName"]',
+            ]
 
-            if author_el:
-                author_name = author_el.text_content().strip()
-                href = author_el.get_attribute("href") or ""
-                if href.startswith("/"):
-                    author_url = f"https://www.tiktok.com{href}"
-                elif href.startswith("http"):
-                    author_url = href
+            for s in author_selectors:
+                author_el = element.query_selector(s)
+                if author_el:
+                    author_name = author_el.text_content().strip()
+                    href = author_el.get_attribute("href") or ""
+                    if href.startswith("/"):
+                        author_url = f"https://www.tiktok.com{href}"
+                    elif href.startswith("http"):
+                        author_url = href
+                    if author_name: break
 
             # Teks komentar
             comment_text = ""
-            text_el = element.query_selector('[data-e2e="comment-level-1"]') or \
-                      element.query_selector('p[data-e2e="comment-text"]') or \
-                      element.query_selector('span[data-e2e="comment-text-1"]')
+            text_selectors = [
+                '[data-e2e="comment-level-1"]',
+                '[data-e2e="comment-text-1"]',
+                'p[data-e2e="comment-text"]',
+                'span[data-e2e="comment-text-1"]',
+                'div[class*="DivCommentText"]',
+                'span[class*="SpanCommentText"]',
+                'p[class*="PCommentText"]',
+            ]
+            
+            for s in text_selectors:
+                try:
+                    text_el = element.query_selector(s)
+                    if text_el:
+                        comment_text = text_el.inner_text().strip()
+                        if comment_text: break
+                except Exception: continue
 
-            if text_el:
-                comment_text = text_el.text_content().strip()
-            else:
-                # Fallback: ambil span terpanjang
-                spans = element.query_selector_all("span")
-                for span in spans:
-                    text = span.text_content().strip()
-                    if text and len(text) > len(comment_text) and len(text) > 3:
-                        comment_text = text
+            if not comment_text and author_name:
+                # Fallback: ambil semua p atau span di dalam item yang isinya panjang
+                try:
+                    all_texts = element.query_selector_all("p, span, div")
+                    # Shortlist: ambil yang bukan author_name dan bukan angka like
+                    for s in all_texts:
+                        t = s.inner_text().strip()
+                        if t and t != author_name and len(t) > 3 and not t.isdigit():
+                            # Pastikan bukan icon atau timestamp singkat
+                            if len(t) > len(comment_text):
+                                comment_text = t
+                except Exception: pass
 
-            if not comment_text or not author_name:
+            if not comment_text or not author_name or author_name == "Unknown":
                 return None
 
             # Likes

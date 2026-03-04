@@ -15,8 +15,6 @@ class FacebookAuth:
     """Mengelola autentikasi ke Facebook menggunakan Playwright"""
 
     def __init__(self):
-        self.email = Config.FB_EMAIL
-        self.password = Config.FB_PASSWORD
         self.cookies_path = Config.get_cookies_path("facebook")
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
@@ -25,10 +23,7 @@ class FacebookAuth:
         """
         Login ke Facebook. Prioritas:
         1. Gunakan cookies yang tersimpan jika masih valid
-        2. Login otomatis dengan email/password
-        
-        Returns:
-            Page yang sudah terautentikasi
+        2. Login manual via browser (user login sendiri)
         """
         logger.info("=== Memulai autentikasi Facebook ===")
 
@@ -39,16 +34,19 @@ class FacebookAuth:
             page = self._login_with_cookies(browser, cookies)
             if page:
                 return page
-            logger.warning("Cookies expired atau tidak valid. Login ulang...")
 
-        # Login otomatis dengan kredensial
-        if not self.email or not self.password:
-            raise ValueError(
-                "FB_EMAIL dan FB_PASSWORD harus diisi di file .env "
-                "untuk dapat login ke Facebook."
-            )
+            # Cookies expired — beri instruksi jelas
+            logger.warning("=" * 60)
+            logger.warning("🔴 COOKIES FACEBOOK SUDAH EXPIRED!")
+            logger.warning("=" * 60)
+            logger.warning("Cookies lama tidak valid, perlu login ulang.")
+            logger.warning("Jika ada proses crawl lain yang sedang berjalan,")
+            logger.warning("HENTIKAN SERVER dulu (Ctrl+C) lalu jalankan ulang.")
+            logger.warning("=" * 60)
 
-        return self._login_with_credentials(browser)
+        # Login manual — browser terbuka, user login sendiri
+        return self._login_manual(browser)
+
 
     def _login_with_cookies(self, browser: Browser, cookies: list) -> Optional[Page]:
         """Coba login menggunakan cookies yang tersimpan"""
@@ -80,9 +78,21 @@ class FacebookAuth:
                 self.context = None
             return None
 
-    def _login_with_credentials(self, browser: Browser) -> Page:
-        """Login otomatis menggunakan email dan password"""
-        logger.info("Login menggunakan kredensial (email/password)...")
+    def _login_manual(self, browser: Browser) -> Page:
+        """
+        Login Facebook secara manual — sama seperti Instagram.
+        Browser dibuka agar user bisa login sendiri,
+        cookies disimpan otomatis setelah berhasil.
+        """
+        logger.warning("=" * 60)
+        logger.warning("⚠️  LOGIN FACEBOOK MANUAL DIPERLUKAN")
+        logger.warning("=" * 60)
+        logger.warning("Silakan login manual di browser yang akan terbuka:")
+        logger.warning("  1. Browser terbuka di halaman Facebook")
+        logger.warning("  2. Masukkan email/password atau gunakan metode lain")
+        logger.warning("  3. Tunggu sampai masuk ke beranda Facebook")
+        logger.warning("  4. JANGAN tutup browser!")
+        logger.warning("=" * 60)
 
         self.context = browser.new_context(
             viewport={"width": 1280, "height": 720},
@@ -91,55 +101,58 @@ class FacebookAuth:
         self.page = self.context.new_page()
 
         try:
-            self.page.goto("https://www.facebook.com", timeout=Config.REQUEST_TIMEOUT)
+            self.page.goto("https://www.facebook.com/login/", timeout=Config.REQUEST_TIMEOUT)
             random_delay(2, 3)
 
-            # Isi email
-            email_input = self.page.wait_for_selector('input[name="email"]', timeout=10000)
-            email_input.fill(self.email)
-            random_delay(1, 2)
+            input("👉 Tekan ENTER setelah berhasil login ke beranda Facebook...")
 
-            # Isi password
-            pass_input = self.page.query_selector('input[name="pass"]')
-            if pass_input:
-                pass_input.fill(self.password)
-                random_delay(1, 2)
+            random_delay(2, 3)
 
-            # Klik tombol login
-            login_btn = self.page.query_selector('button[name="login"]') or \
-                        self.page.query_selector('button[type="submit"]')
-            if login_btn:
-                login_btn.click()
-                logger.info("Tombol login diklik, menunggu respons...")
+            # Tunggu sampai benar-benar di beranda
+            try:
+                self.page.wait_for_url(
+                    lambda url: (
+                        "facebook.com" in url
+                        and "/login" not in url
+                        and "/checkpoint" not in url
+                    ),
+                    timeout=15000,
+                )
+                logger.info(f"✓ URL sekarang: {self.page.url}")
+            except Exception:
+                logger.warning(f"Timeout redirect, URL saat ini: {self.page.url}")
 
-                try:
-                    self.page.wait_for_load_state("networkidle", timeout=30000)
-                except Exception:
-                    pass
-                random_delay(3, 5)
+            random_delay(2, 3)
 
-                # Cek challenge/CAPTCHA
-                if self._has_challenge():
-                    logger.warning("⚠️  Challenge terdeteksi! Selesaikan secara manual di browser.")
-                    input("👉 Tekan ENTER setelah menyelesaikan verifikasi...")
-                    random_delay(2, 3)
-
-                if self._is_logged_in():
-                    cookies = self.context.cookies()
-                    save_cookies(cookies, self.cookies_path)
-                    logger.success("✓ Login Facebook berhasil! Cookies disimpan.")
-                    return self.page
-                else:
-                    raise Exception("Login Facebook gagal — cek email/password di .env")
+            # Simpan cookies selama URL bukan halaman login
+            current_url = self.page.url
+            if "/login" not in current_url and "/checkpoint" not in current_url:
+                cookies = self.context.cookies()
+                save_cookies(cookies, self.cookies_path)
+                logger.success("✓ Cookies Facebook tersimpan ke cookies_facebook.json")
+                logger.info(f"   Total cookies: {len(cookies)}")
+                logger.info("   Sesi berikutnya akan otomatis menggunakan cookies tersimpan.")
+                return self.page
             else:
-                raise Exception("Tombol login tidak ditemukan")
+                raise Exception(
+                    f"Login Facebook gagal. URL saat ini: {current_url}. "
+                    "Pastikan sudah masuk ke beranda Facebook sebelum tekan Enter."
+                )
 
         except Exception as e:
-            logger.error(f"Error login Facebook: {e}")
+            logger.error(f"Error login Facebook manual: {e}")
             raise
 
+
+
     def _is_logged_in(self) -> bool:
-        """Cek apakah saat ini sudah login ke Facebook"""
+        """
+        Cek apakah saat ini sudah login ke Facebook.
+        
+        Facebook terkadang membuka halaman profil publik meski belum login
+        sambil menampilkan popup login — URL tetap facebook.com/username.
+        Perlu cek elemen UI untuk memastikan benar-benar sudah login.
+        """
         try:
             try:
                 self.page.wait_for_load_state("domcontentloaded", timeout=5000)
@@ -153,18 +166,60 @@ class FacebookAuth:
                 if pattern in current_url.lower():
                     return False
 
-            # Cek halaman login
+            # Cek halaman login eksplisit
             if "login" in current_url.lower():
                 return False
-            if self.page.query_selector('input[name="email"]'):
+
+            if "facebook.com" not in current_url:
                 return False
 
-            # Jika di facebook.com dan tidak ada form login → sudah login
-            return "facebook.com" in current_url
+            # Cek kehadiran form login (termasuk popup/modal di atas halaman profil)
+            # Facebook menampilkan ini walau URL = facebook.com/username saat belum login
+            login_indicators = [
+                'input[name="email"]',
+                'input[name="pass"]',
+                'input[placeholder*="Email"]',
+                'input[placeholder*="Nomor Telepon"]',
+                'input[placeholder*="Phone"]',
+                'form[data-testid="royal_login_form"]',
+                '[data-testid="royal_login_form"]',
+                # Tombol Masuk/Login di bagian atas halaman
+                'a[href*="/login/"]',
+            ]
+            for sel in login_indicators:
+                try:
+                    el = self.page.query_selector(sel)
+                    if el and el.is_visible():
+                        logger.debug(f"[FB] Ditemukan elemen login: {sel} — belum login")
+                        return False
+                except Exception:
+                    continue
+
+            # Cek indikator sudah login: avatar/profile di navbar atas
+            logged_in_indicators = [
+                '[aria-label="Akun Anda"]',
+                '[aria-label="Your account"]',
+                '[aria-label="Profil"]',
+                '[data-testid="nav-small-profile-link"]',
+            ]
+            for sel in logged_in_indicators:
+                try:
+                    el = self.page.query_selector(sel)
+                    if el:
+                        logger.debug(f"[FB] Indikator login: {sel} ✓")
+                        return True
+                except Exception:
+                    continue
+
+            # Jika tidak ada form login dan ada di facebook.com → asumsi login
+            # (merupakan fallback jika selector berubah)
+            logger.debug("[FB] Tidak ada form login terdeteksi, anggap sudah login")
+            return True
 
         except Exception as e:
             logger.debug(f"Error cek status login: {e}")
             return False
+
 
     def _has_challenge(self) -> bool:
         """Cek apakah ada halaman verifikasi/CAPTCHA"""

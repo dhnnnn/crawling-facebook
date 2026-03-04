@@ -32,7 +32,7 @@ class InstagramCrawlRequest(BaseModel):
 
     class Config:
         json_schema_extra = {
-            "example": {"target": "rusdi_sutejo", "max_posts": 3}
+            "example": {"target": "rusdi.sutejo", "max_posts": 3}
         }
 
 
@@ -46,7 +46,7 @@ class TikTokCrawlRequest(BaseModel):
 
     class Config:
         json_schema_extra = {
-            "example": {"target": "rusdi_sutejo", "max_posts": 3}
+            "example": {"target": "rusdi.sutejo", "max_posts": 3}
         }
 
 
