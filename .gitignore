@@ -23,12 +23,14 @@ nosetests.xml
 **/data/cookies/*
 **/data/exports/*
 **/data/logs/*
+**/data/crawling/*
 **/*.log
 
 # Files to keep in data directories
 !**/data/cookies/.gitkeep
 !**/data/exports/.gitkeep
 !**/data/logs/.gitkeep
+!**/data/crawling/**/.gitkeep
 
 # Playwright
 /test-results/
