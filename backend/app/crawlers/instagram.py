@@ -312,6 +312,9 @@ class InstagramCrawler(BaseCrawler):
         else:
             self._scroll_post_comments()
 
+        # Klik 'selengkapnya' jika ada
+        self._expand_see_more()
+
         return self._extract_comments(post_url)
 
     def _scroll_post_comments(self) -> None:
@@ -445,6 +448,28 @@ class InstagramCrawler(BaseCrawler):
                     random_delay(2, 3)
             except Exception:
                 continue
+
+    def _expand_see_more(self) -> None:
+        """Klik tombol 'more' / 'selengkapnya' di komentar Instagram"""
+        try:
+            # Instagram 'more' biasanya ada di sisi kanan viewport
+            self.page.evaluate("""
+                () => {
+                    const buttons = document.querySelectorAll('div[role="button"]');
+                    buttons.forEach(btn => {
+                        const txt = btn.textContent.trim().toLowerCase();
+                        if (txt === 'more' || txt === 'selengkapnya') {
+                            const rect = btn.getBoundingClientRect();
+                            if (rect.left > window.innerWidth * 0.4) {
+                                btn.click();
+                            }
+                        }
+                    });
+                }
+            """)
+            random_delay(1, 2)
+        except Exception as e:
+            logger.debug(f"[Instagram] Error expand see more: {e}")
 
     def _extract_comments(self, post_url: str) -> List[CommentData]:
         """

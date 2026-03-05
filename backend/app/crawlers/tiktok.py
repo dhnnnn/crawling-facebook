@@ -307,6 +307,9 @@ class TikTokCrawler(BaseCrawler):
         # 3. Scroll untuk load lebih banyak komentar
         self._load_comments()
 
+        # Klik 'lihat selengkapnya' untuk mambuka komentar TikTok yang panjang
+        self._expand_see_more()
+
         return self._extract_comments(video_url)
 
     def _load_comments(self) -> None:
@@ -363,6 +366,28 @@ class TikTokCrawler(BaseCrawler):
                     random_delay(1.0, 2.0)
             except Exception:
                 pass
+
+    def _expand_see_more(self) -> None:
+        """Klik tombol 'lihat selengkapnya' / 'selengkapnya' di komentar TikTok"""
+        try:
+            # TikTok 'lihat selengkapnya' biasanya ada di sisi kanan viewport (panel komentar)
+            self.page.evaluate("""
+                () => {
+                    const spans = document.querySelectorAll('span, p, div');
+                    spans.forEach(el => {
+                        const txt = el.textContent.trim().toLowerCase();
+                        if (txt === 'lihat selengkapnya' || txt === 'selengkapnya' || txt === '... selengkapnya') {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.left > window.innerWidth * 0.4) {
+                                el.click();
+                            }
+                        }
+                    });
+                }
+            """)
+            random_delay(1, 2)
+        except Exception as e:
+            logger.debug(f"[TikTok] Error expand see more: {e}")
 
     def _extract_comments(self, video_url: str) -> List[CommentData]:
         """Ekstrak komentar dari halaman video TikTok"""

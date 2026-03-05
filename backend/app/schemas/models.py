@@ -96,6 +96,7 @@ class CrawlResult(BaseModel):
         description="Statistik hashtag yang ditemukan di caption post (khusus hashtag crawl). "
                     "Format: [{hashtag, count}] diurutkan dari yang paling banyak dipakai."
     )
+    crawled_at: str = Field(description="Waktu crawling selesai dilakukan (ISO format)")
     errors: List[str] = Field(default=[], description="Daftar error yang terjadi (jika ada)")
 
     class Config:
@@ -107,6 +108,7 @@ class CrawlResult(BaseModel):
                 "crawl_type": "username",
                 "total_posts_crawled": 3,
                 "total_comments": 47,
+                "crawled_at": "2026-03-04T08:00:00",
                 "comments": [
                     {
                         "post_url": "https://www.facebook.com/...",

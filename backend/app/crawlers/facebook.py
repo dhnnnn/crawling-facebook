@@ -271,6 +271,9 @@ class FacebookCrawler(BaseCrawler):
             # Post biasa: komentar sudah langsung tampil, cukup scroll ke bawah
             self._scroll_to_load_comments()
 
+        # Klik 'Lihat selengkapnya' untuk mambuka komentar yang panjang
+        self._expand_see_more()
+
         raw_comments = self._extract_comments()
 
         comments: List[CommentData] = []

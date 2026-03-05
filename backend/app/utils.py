@@ -187,7 +187,7 @@ def save_crawl_result(platform: str, crawl_type: str, result) -> None:
 
 
 def load_crawl_results(platform: str, crawl_type: str):
-    """Load all JSON crawl result files for a platform and crawl_type."""
+    """Load all JSON crawl result files for a platform and crawl_type (Full Data)."""
     try:
         from pathlib import Path
         import json
@@ -197,7 +197,6 @@ def load_crawl_results(platform: str, crawl_type: str):
             return []
             
         results = []
-        # Sort by mtime descending (terbaru di atas)
         files = sorted(base_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)
         
         for file in files:
@@ -210,3 +209,56 @@ def load_crawl_results(platform: str, crawl_type: str):
     except Exception as e:
         logger.error(f"[Utils] Failed to load crawl results: {e}")
         return []
+
+
+def list_crawl_results_metadata(platform: str, crawl_type: str):
+    """List metadata (summary) for all crawl results of a platform and type."""
+    try:
+        from pathlib import Path
+        import json
+        
+        base_dir = Path(__file__).resolve().parents[2] / "data" / "crawling" / platform.lower() / crawl_type
+        if not base_dir.exists():
+            return []
+            
+        metadata_list = []
+        files = sorted(base_dir.glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)
+        
+        for file in files:
+            try:
+                # Baca sedikit bagian awal file untuk mendapatkan metadata penting (target, status, crawled_at)
+                with open(file, "r", encoding="utf-8") as f:
+                    # Bukan cara terefisien tapi paling simpel mengingat struktur JSON
+                    data = json.load(f)
+                    metadata_list.append({
+                        "id": file.name,
+                        "target": data.get("target"),
+                        "platform": data.get("platform"),
+                        "crawl_type": data.get("crawl_type"),
+                        "total_comments": data.get("total_comments", 0),
+                        "crawled_at": data.get("crawled_at"),
+                        "status": data.get("status")
+                    })
+            except Exception:
+                continue
+        return metadata_list
+    except Exception as e:
+        logger.error(f"[Utils] Failed to list crawl metadata: {e}")
+        return []
+
+
+def get_crawl_result_detail(platform: str, crawl_type: str, filename: str):
+    """Get full content of a specific crawl result file."""
+    try:
+        from pathlib import Path
+        import json
+        
+        file_path = Path(__file__).resolve().parents[2] / "data" / "crawling" / platform.lower() / crawl_type / filename
+        if not file_path.exists():
+            return None
+            
+        with open(file_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        logger.error(f"[Utils] Failed to get crawl detail: {e}")
+        return None

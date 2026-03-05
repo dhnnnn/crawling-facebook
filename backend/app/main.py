@@ -10,6 +10,7 @@ from loguru import logger
 from .api.routes.facebook import router as facebook_router
 from .api.routes.instagram import router as instagram_router
 from .api.routes.tiktok import router as tiktok_router
+from .api.routes.results import router as results_router
 from .api.routes.system import router as system_router
 
 # ============================================================
@@ -51,6 +52,7 @@ app.add_middleware(
 app.include_router(facebook_router, prefix="/api")
 app.include_router(instagram_router, prefix="/api")
 app.include_router(tiktok_router, prefix="/api")
+app.include_router(results_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
 
 # ============================================================

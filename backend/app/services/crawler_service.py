@@ -167,6 +167,7 @@ def crawl_tiktok_hashtag(hashtag: str, max_posts: int) -> CrawlResult:
 
 def _error_result(platform: str, target: str, crawl_type: str, error: str) -> CrawlResult:
     """Buat CrawlResult dengan status error"""
+    from datetime import datetime
     return CrawlResult(
         status="error",
         platform=platform,
@@ -175,5 +176,6 @@ def _error_result(platform: str, target: str, crawl_type: str, error: str) -> Cr
         total_posts_crawled=0,
         total_comments=0,
         comments=[],
+        crawled_at=datetime.now().isoformat(),
         errors=[error],
     )

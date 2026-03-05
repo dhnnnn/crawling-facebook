@@ -64,6 +64,7 @@ class BaseCrawler(ABC):
     ) -> CrawlResult:
         """Helper untuk membuat CrawlResult dari list komentar"""
         # Hitung jumlah post unik
+        from datetime import datetime
         unique_posts = len(set(c.post_url for c in comments))
         return CrawlResult(
             status="success" if comments else "error",
@@ -73,5 +74,6 @@ class BaseCrawler(ABC):
             total_posts_crawled=unique_posts,
             total_comments=len(comments),
             comments=comments,
+            crawled_at=datetime.now().isoformat(),
             errors=errors or [],
         )
