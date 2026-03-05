@@ -84,7 +84,6 @@ Crawling-medsos/
 
 | Variabel      | Deskripsi                                                             | Default                   |
 | ------------- | --------------------------------------------------------------------- | ------------------------- |
-| `API_KEY`     | Key untuk mengakses API via header `X-API-Key`                        | `crawler_secret_key_2026` |
 | `HEADLESS`    | `true` untuk lari di background, `false` untuk melihat proses browser | `false`                   |
 | `MIN_DELAY`   | Delay minimal antar aksi (detik)                                      | `2`                       |
 | `MAX_DELAY`   | Delay maksimal antar aksi (detik)                                     | `5`                       |
